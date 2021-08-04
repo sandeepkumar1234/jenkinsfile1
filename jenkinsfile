@@ -1,0 +1,57 @@
+properties([parameters([string(description: 'please give your git url here', name: 'giturl'), string(description: 'please give your git branch here', name: 'git branch'), string(description: 'please give your git credentials here', name: 'gircredentials'), string(description: 'please give your environment.url here', name: 'environmenturl'), string(description: 'please give your application.url here', name: 'applicationurl'), string(defaultValue: 'http://qaopselasticsearch.engazewell.com/report/report', description: 'please give your es.path here', name: 'espath'), string(description: 'please give your test.planId here', name: 'testplanId')])])
+pipeline {
+    agent any
+    
+    environment {
+        dockerImage =''
+        BUILD_ID="${env.BUILD_ID}"
+        registry = 'sandeepalguri/seleniumimp:${BUILD_ID}'
+        registryCredential ='sandeep-dockerhub'
+        
+    }
+    stages {
+        stage('git clone') {
+            steps {
+                echo "cloning git from ${params.giturl}"
+                echo "cloning git from this branch ${params.gitbranch}"
+                echo "cloning fit these credentials ${params.gitcredentials}"
+                git branch: "main", credentialsId: "sandeep-github", url: "https://github.com/sandeepkumar1234/seleniumqaops.git"
+            }
+        }
+        stage('replace application.url') {
+            steps {
+                echo "replacing application.url with ${params.environmenturl}"
+                //sh """ (sed -i "s/${params.applicationurl}/${params.environmenturl}/g" "application.properties")"""
+                sh "chmod 777 properties.sh"
+                sh "./properties.sh"
+            }
+        }
+        stage('docker build') {
+            steps {
+              script {
+                  dir('.') {
+                    sh "pwd"
+                    sh "apt-get install -y sudo libltdl-dev -y"
+                    dokcerImage = docker.build registry
+                   }
+              }
+            }
+        }
+        stage('docker push') {
+            steps {
+              script {
+                  docker.withRegistry('', registryCredential ) {
+                  sh 'docker push sandeepalguri/seleniumimp:${BUILD_ID}'    
+                  }
+              }
+            }
+        }
+        stage('Deploy kubernetes') {
+              steps {
+                withCredentials([kubeconfigFile(credentialsId: 'kube-config', variable: 'KUBECONFIG')]) {
+                sh '''echo "$KUBECONFIG" > kubeconfig && cat kubeconfig && kubectl get nodes && ls -l && kubectl run selnot${BUILD_ID} --image=sandeepalguri/seleniumimp:${BUILD_ID} -n selenium --restart=Never'''
+                }
+            }
+        }
+   }
+}
